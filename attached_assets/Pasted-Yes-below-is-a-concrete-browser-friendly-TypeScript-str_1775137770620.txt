@@ -1,0 +1,715 @@
+Yes — below is a concrete, browser-friendly TypeScript structure you can start building immediately. Matter.js is a good fit because it provides rigid bodies, collisions, friction, gravity, events, and stable stacking, which are exactly the pieces a coin pusher MVP needs. [brm](https://brm.io/matter-js/)
+
+## File structure
+
+Use a small feature-first structure so physics, game rules, and UI stay separated instead of turning into one giant `main.ts`.  This also matches your MVP style well: one entry point, clean data files, and systems that can grow later into Phaser or a larger architecture if the prototype works. [dev](https://dev.to/davidmorais/building-a-roguelike-game-with-typescript-105l)
+
+```txt
+coin-pusher-mvp/
+├─ index.html
+├─ package.json
+├─ tsconfig.json
+├─ vite.config.ts
+├─ public/
+│  └─ sounds/
+│     ├─ coin-drop.mp3
+│     ├─ payout.mp3
+│     └─ bomb.mp3
+└─ src/
+   ├─ main.ts
+   ├─ styles.css
+   ├─ core/
+   │  ├─ game.ts
+   │  ├─ loop.ts
+   │  ├─ config.ts
+   │  ├─ rng.ts
+   │  └─ event-bus.ts
+   ├─ physics/
+   │  ├─ world.ts
+   │  ├─ board.ts
+   │  ├─ bodies.ts
+   │  ├─ collision-tags.ts
+   │  └─ sensors.ts
+   ├─ render/
+   │  ├─ canvas-renderer.ts
+   │  ├─ camera-shake.ts
+   │  ├─ particles.ts
+   │  └─ coin-skins.ts
+   ├─ data/
+   │  ├─ coin-defs.ts
+   │  ├─ item-defs.ts
+   │  ├─ round-defs.ts
+   │  └─ loot-tables.ts
+   ├─ models/
+   │  ├─ coin.ts
+   │  ├─ item.ts
+   │  ├─ round.ts
+   │  ├─ run.ts
+   │  └─ shop.ts
+   ├─ systems/
+   │  ├─ drop-system.ts
+   │  ├─ payout-system.ts
+   │  ├─ combo-system.ts
+   │  ├─ effect-system.ts
+   │  ├─ round-system.ts
+   │  ├─ shop-system.ts
+   │  └─ machine-system.ts
+   ├─ state/
+   │  ├─ game-state.ts
+   │  ├─ selectors.ts
+   │  └─ actions.ts
+   ├─ ui/
+   │  ├─ hud.ts
+   │  ├─ shop-panel.ts
+   │  ├─ run-summary.ts
+   │  ├─ floating-text.ts
+   │  └─ buttons.ts
+   ├─ audio/
+   │  └─ sfx.ts
+   └─ utils/
+      ├─ math.ts
+      ├─ time.ts
+      └─ ids.ts
+```
+
+## Folder roles
+
+A good rule is: `data/` holds static content, `models/` holds type contracts, `systems/` contains gameplay rules, and `physics/` owns Matter.js integration.  That separation matters because the coin pusher feel comes from both simulation and game economy, and you want to tweak each side without breaking the other. [youtube](https://www.youtube.com/watch?v=Bt4R2M_gS3Q)
+
+- `core/`: bootstrapping, frame loop, config, event bus.
+- `physics/`: Matter engine, board geometry, shelf motion, sensors, collision labels. [youtube](https://www.youtube.com/watch?v=Bt4R2M_gS3Q)
+- `render/`: custom canvas drawing and juice effects rather than relying on default Matter rendering. [youtube](https://www.youtube.com/watch?v=Bt4R2M_gS3Q)
+- `data/`: balancing content you can edit quickly during tuning.
+- `models/`: TypeScript types/interfaces for compile-time safety.
+- `systems/`: the heart of gameplay.
+- `state/`: serializable runtime state for the current run.
+- `ui/`: HTML overlay logic for HUD, shop, summary panels. [playraccoin](https://www.playraccoin.com)
+
+## Core data models
+
+The first-pass model should stay data-driven, because RACCOIN’s appeal comes from combining coin definitions and item modifiers into synergies.  In practice, that means your code should ask “what tags and effects does this coin have?” instead of hardcoding special behavior all over the place. [dev](https://dev.to/davidmorais/building-a-roguelike-game-with-typescript-105l)
+
+### `src/models/coin.ts`
+
+```ts
+export type CoinId = string;
+export type CoinTypeId = 'normal' | 'heavy' | 'bomb' | 'lucky' | 'multiplier';
+
+export type CoinTag =
+  | 'basic'
+  | 'heavy'
+  | 'explosive'
+  | 'lucky'
+  | 'multiplier'
+  | 'starter'
+  | 'shop';
+
+export type CoinTrigger =
+  | 'onSpawn'
+  | 'onLand'
+  | 'onCollision'
+  | 'onPayout'
+  | 'onRoundEnd'
+  | 'onFuseExpired';
+
+export interface CoinStats {
+  radius: number;
+  density: number;
+  restitution: number;
+  friction: number;
+  airFriction: number;
+  baseValue: number;
+  payoutValue: number;
+}
+
+export interface CoinEffectContext {
+  coinId: CoinId;
+  trigger: CoinTrigger;
+  sourceItemIds?: string[];
+}
+
+export interface CoinEffect {
+  id: string;
+  trigger: CoinTrigger;
+  params?: Record<string, number | string | boolean>;
+}
+
+export interface CoinDefinition {
+  typeId: CoinTypeId;
+  name: string;
+  description: string;
+  rarity: 'common' | 'rare' | 'epic';
+  tags: CoinTag[];
+  color: string;
+  stats: CoinStats;
+  effects: CoinEffect[];
+  weight: number;
+  unlockCost?: number;
+}
+
+export interface SpawnedCoin {
+  id: CoinId;
+  typeId: CoinTypeId;
+  x: number;
+  y: number;
+  createdAtMs: number;
+  hasPaidOut: boolean;
+  transient: {
+    wasRecentlyHit: boolean;
+    collisionCount: number;
+    lastCollisionAtMs: number | null;
+    fuseEndsAtMs?: number;
+  };
+}
+```
+
+### `src/models/item.ts`
+
+```ts
+export type ItemId = string;
+export type ItemTypeId =
+  | 'magnet'
+  | 'multiplier-tray'
+  | 'bomb-polish'
+  | 'lucky-lip'
+  | 'heavy-mint';
+
+export type ItemRarity = 'common' | 'rare' | 'epic';
+
+export type ItemTrigger =
+  | 'passive'
+  | 'onCoinSpawn'
+  | 'onCoinPayout'
+  | 'onRoundStart'
+  | 'onRoundEnd'
+  | 'onShopGenerated';
+
+export interface ItemEffect {
+  id: string;
+  trigger: ItemTrigger;
+  params?: Record<string, number | string | boolean>;
+}
+
+export interface ItemDefinition {
+  typeId: ItemTypeId;
+  name: string;
+  description: string;
+  rarity: ItemRarity;
+  stackable: boolean;
+  maxStacks: number;
+  effects: ItemEffect[];
+  weight: number;
+  cost: number;
+}
+
+export interface OwnedItem {
+  id: ItemId;
+  typeId: ItemTypeId;
+  stacks: number;
+  purchasedAtRound: number;
+}
+```
+
+### `src/models/round.ts`
+
+```ts
+export type RoundStatus = 'ready' | 'dropping' | 'resolving' | 'shop' | 'won' | 'lost';
+
+export interface RoundGoal {
+  targetScore: number;
+  targetGold?: number;
+}
+
+export interface RoundRules {
+  startingDrops: number;
+  maxConcurrentCoins: number;
+  shopChoices: number;
+  payoutComboWindowMs: number;
+  collisionComboWindowMs: number;
+  bombFuseMs: number;
+  machinePushStrength: number;
+  machineCycleMs: number;
+}
+
+export interface RoundState {
+  roundNumber: number;
+  status: RoundStatus;
+  goal: RoundGoal;
+  rules: RoundRules;
+  dropsRemaining: number;
+  scoreThisRound: number;
+  goldThisRound: number;
+  payoutsThisRound: number;
+  comboChain: number;
+  lastPayoutAtMs: number | null;
+  startedAtMs: number;
+  endedAtMs: number | null;
+}
+```
+
+### `src/models/run.ts`
+
+```ts
+import type { SpawnedCoin } from './coin';
+import type { OwnedItem } from './item';
+import type { RoundState } from './round';
+
+export interface RunEconomy {
+  gold: number;
+  score: number;
+  lives: number;
+}
+
+export interface CoinInventoryEntry {
+  typeId: string;
+  count: number;
+}
+
+export interface RunState {
+  seed: string;
+  economy: RunEconomy;
+  round: RoundState;
+  inventory: CoinInventoryEntry[];
+  items: OwnedItem[];
+  activeCoins: SpawnedCoin[];
+  history: {
+    roundsCleared: number;
+    payoutsTotal: number;
+    bombsTriggered: number;
+  };
+}
+```
+
+### `src/models/shop.ts`
+
+```ts
+export type ShopRewardType = 'coin' | 'item' | 'gold';
+
+export interface ShopOffer {
+  id: string;
+  rewardType: ShopRewardType;
+  refTypeId?: string;
+  title: string;
+  description: string;
+  cost: number;
+  purchased: boolean;
+}
+```
+
+## Static content examples
+
+Your content files should be plain objects so balancing is easy. The goal is to edit numbers and effect params, not rewrite logic each time you add one coin. [brm](https://brm.io/matter-js/)
+
+### `src/data/coin-defs.ts`
+
+```ts
+import type { CoinDefinition } from '../models/coin';
+
+export const COIN_DEFS: Record<string, CoinDefinition> = {
+  normal: {
+    typeId: 'normal',
+    name: 'Normal Coin',
+    description: 'A plain coin with reliable payout.',
+    rarity: 'common',
+    tags: ['basic', 'starter'],
+    color: '#d7b94c',
+    stats: {
+      radius: 14,
+      density: 0.0018,
+      restitution: 0.18,
+      friction: 0.08,
+      airFriction: 0.002,
+      baseValue: 1,
+      payoutValue: 1,
+    },
+    effects: [],
+    weight: 100,
+  },
+  heavy: {
+    typeId: 'heavy',
+    name: 'Heavy Coin',
+    description: 'Heavier coin that shoves stacks forward.',
+    rarity: 'common',
+    tags: ['heavy', 'shop'],
+    color: '#9aa4b2',
+    stats: {
+      radius: 16,
+      density: 0.0032,
+      restitution: 0.1,
+      friction: 0.12,
+      airFriction: 0.001,
+      baseValue: 1,
+      payoutValue: 1,
+    },
+    effects: [
+      {
+        id: 'heavy-impact-bonus',
+        trigger: 'onCollision',
+        params: { extraImpulse: 0.0015 },
+      },
+    ],
+    weight: 60,
+    unlockCost: 10,
+  },
+  bomb: {
+    typeId: 'bomb',
+    name: 'Bomb Coin',
+    description: 'Explodes after a short fuse and launches nearby coins.',
+    rarity: 'rare',
+    tags: ['explosive', 'shop'],
+    color: '#d95f5f',
+    stats: {
+      radius: 15,
+      density: 0.0022,
+      restitution: 0.14,
+      friction: 0.09,
+      airFriction: 0.002,
+      baseValue: 0,
+      payoutValue: 2,
+    },
+    effects: [
+      {
+        id: 'bomb-fuse',
+        trigger: 'onLand',
+        params: { fuseMs: 1200 },
+      },
+      {
+        id: 'bomb-burst',
+        trigger: 'onFuseExpired',
+        params: { radius: 90, force: 0.03 },
+      },
+    ],
+    weight: 25,
+    unlockCost: 18,
+  },
+  lucky: {
+    typeId: 'lucky',
+    name: 'Lucky Coin',
+    description: 'Pays bonus gold when it exits near the center lane.',
+    rarity: 'rare',
+    tags: ['lucky', 'shop'],
+    color: '#58c27d',
+    stats: {
+      radius: 14,
+      density: 0.0017,
+      restitution: 0.22,
+      friction: 0.07,
+      airFriction: 0.002,
+      baseValue: 1,
+      payoutValue: 2,
+    },
+    effects: [
+      {
+        id: 'center-lane-bonus',
+        trigger: 'onPayout',
+        params: { centerBonusGold: 2 },
+      },
+    ],
+    weight: 20,
+    unlockCost: 15,
+  },
+  multiplier: {
+    typeId: 'multiplier',
+    name: 'Multi Coin',
+    description: 'Boosts payout score when it falls with a chain.',
+    rarity: 'epic',
+    tags: ['multiplier', 'shop'],
+    color: '#7b61ff',
+    stats: {
+      radius: 14,
+      density: 0.0019,
+      restitution: 0.2,
+      friction: 0.08,
+      airFriction: 0.002,
+      baseValue: 1,
+      payoutValue: 1,
+    },
+    effects: [
+      {
+        id: 'chain-multiplier',
+        trigger: 'onPayout',
+        params: { minChain: 2, scoreMultiplier: 2 },
+      },
+    ],
+    weight: 8,
+    unlockCost: 24,
+  },
+};
+```
+
+### `src/data/item-defs.ts`
+
+```ts
+import type { ItemDefinition } from '../models/item';
+
+export const ITEM_DEFS: Record<string, ItemDefinition> = {
+  magnet: {
+    typeId: 'magnet',
+    name: 'Magnet',
+    description: 'Coins near the payout edge slide slightly forward.',
+    rarity: 'common',
+    stackable: true,
+    maxStacks: 3,
+    cost: 12,
+    weight: 80,
+    effects: [
+      {
+        id: 'edge-drift',
+        trigger: 'passive',
+        params: { edgeZoneY: 520, pushX: 0, pushY: 0.00045 },
+      },
+    ],
+  },
+  'multiplier-tray': {
+    typeId: 'multiplier-tray',
+    name: 'Multiplier Tray',
+    description: 'Every 5th payout gives double score.',
+    rarity: 'rare',
+    stackable: false,
+    maxStacks: 1,
+    cost: 18,
+    weight: 40,
+    effects: [
+      {
+        id: 'periodic-double-score',
+        trigger: 'onCoinPayout',
+        params: { everyNthPayout: 5, scoreMultiplier: 2 },
+      },
+    ],
+  },
+  'bomb-polish': {
+    typeId: 'bomb-polish',
+    name: 'Bomb Polish',
+    description: 'Bombs explode with a larger radius.',
+    rarity: 'common',
+    stackable: true,
+    maxStacks: 2,
+    cost: 14,
+    weight: 50,
+    effects: [
+      {
+        id: 'bomb-radius-up',
+        trigger: 'passive',
+        params: { radiusBonus: 20, forceBonus: 0.008 },
+      },
+    ],
+  },
+  'lucky-lip': {
+    typeId: 'lucky-lip',
+    name: 'Lucky Lip',
+    description: 'Center-lane payouts gain bonus gold.',
+    rarity: 'common',
+    stackable: true,
+    maxStacks: 3,
+    cost: 10,
+    weight: 60,
+    effects: [
+      {
+        id: 'center-payout-gold',
+        trigger: 'onCoinPayout',
+        params: { centerBonusGold: 1 },
+      },
+    ],
+  },
+  'heavy-mint': {
+    typeId: 'heavy-mint',
+    name: 'Heavy Mint',
+    description: 'Heavy coins spawn slightly larger and denser.',
+    rarity: 'rare',
+    stackable: false,
+    maxStacks: 1,
+    cost: 16,
+    weight: 30,
+    effects: [
+      {
+        id: 'heavy-upgrade',
+        trigger: 'onCoinSpawn',
+        params: { targetType: 'heavy', radiusScale: 1.1, densityScale: 1.15 },
+      },
+    ],
+  },
+};
+```
+
+### `src/data/round-defs.ts`
+
+```ts
+import type { RoundRules } from '../models/round';
+
+export const BASE_ROUND_RULES: RoundRules = {
+  startingDrops: 12,
+  maxConcurrentCoins: 40,
+  shopChoices: 3,
+  payoutComboWindowMs: 2000,
+  collisionComboWindowMs: 1200,
+  bombFuseMs: 1200,
+  machinePushStrength: 2.6,
+  machineCycleMs: 2400,
+};
+
+export function makeRoundGoal(roundNumber: number) {
+  return {
+    targetScore: 20 + (roundNumber - 1) * 10,
+    targetGold: 8 + (roundNumber - 1) * 2,
+  };
+}
+```
+
+## Runtime state shape
+
+Your state should be plain and serializable, even if you also keep Matter bodies in maps outside the state. Matter body references are not the source of truth; your run state is.  This keeps game rules testable and prevents physics objects from leaking into UI and shop logic. [brm](https://brm.io/matter-js/)
+
+### `src/state/game-state.ts`
+
+```ts
+import type { RunState } from '../models/run';
+import { BASE_ROUND_RULES, makeRoundGoal } from '../data/round-defs';
+
+export const initialGameState: RunState = {
+  seed: crypto.randomUUID(),
+  economy: {
+    gold: 0,
+    score: 0,
+    lives: 1,
+  },
+  round: {
+    roundNumber: 1,
+    status: 'ready',
+    goal: makeRoundGoal(1),
+    rules: BASE_ROUND_RULES,
+    dropsRemaining: 12,
+    scoreThisRound: 0,
+    goldThisRound: 0,
+    payoutsThisRound: 0,
+    comboChain: 0,
+    lastPayoutAtMs: null,
+    startedAtMs: performance.now(),
+    endedAtMs: null,
+  },
+  inventory: [
+    { typeId: 'normal', count: 10 },
+    { typeId: 'bomb', count: 1 },
+    { typeId: 'heavy', count: 1 },
+  ],
+  items: [],
+  activeCoins: [],
+  history: {
+    roundsCleared: 0,
+    payoutsTotal: 0,
+    bombsTriggered: 0,
+  },
+};
+```
+
+## System responsibilities
+
+Keep each system boring and narrow. The easiest way to lose control of a simulation game is to let payout logic, combo logic, and physics callbacks all mutate everything directly. [brm](https://brm.io/matter-js/)
+
+- `drop-system.ts`: picks the next coin, spawns it, decrements drops.
+- `machine-system.ts`: moves the pusher shelf on a timed cycle.
+- `payout-system.ts`: detects front sensor exits and awards gold/score.
+- `combo-system.ts`: calculates chains based on payout timing.
+- `effect-system.ts`: resolves coin and item effects by trigger.
+- `round-system.ts`: checks win/loss conditions and advances phases.
+- `shop-system.ts`: rolls offers from weighted item/coin tables.
+
+A useful pattern is: physics event -> dispatch gameplay event -> systems consume it -> state updates -> UI refresh. Matter.js already exposes events, so this pattern fits the engine naturally. [youtube](https://www.youtube.com/watch?v=Bt4R2M_gS3Q)
+
+## Suggested starter interfaces for systems
+
+### `src/core/event-bus.ts`
+
+```ts
+export type GameEvent =
+  | { type: 'coin.spawned'; coinId: string; coinTypeId: string }
+  | { type: 'coin.landed'; coinId: string }
+  | { type: 'coin.payout'; coinId: string; lane: 'left' | 'center' | 'right' }
+  | { type: 'coin.fuseExpired'; coinId: string }
+  | { type: 'round.started'; roundNumber: number }
+  | { type: 'round.ended'; roundNumber: number; cleared: boolean }
+  | { type: 'shop.entered'; roundNumber: number };
+
+type Handler<T extends GameEvent = GameEvent> = (event: T) => void;
+
+export class EventBus {
+  private handlers: Handler[] = [];
+
+  emit(event: GameEvent) {
+    for (const handler of this.handlers) handler(event);
+  }
+
+  on(handler: Handler) {
+    this.handlers.push(handler);
+    return () => {
+      this.handlers = this.handlers.filter((h) => h !== handler);
+    };
+  }
+}
+```
+
+### `src/systems/effect-system.ts`
+
+```ts
+import type { CoinDefinition, SpawnedCoin, CoinTrigger } from '../models/coin';
+import type { OwnedItem, ItemDefinition } from '../models/item';
+import type { RunState } from '../models/run';
+
+export interface EffectRuntimeContext {
+  nowMs: number;
+  lane?: 'left' | 'center' | 'right';
+}
+
+export interface EffectSystemDeps {
+  run: RunState;
+  coinDefs: Record<string, CoinDefinition>;
+  itemDefs: Record<string, ItemDefinition>;
+}
+
+export function applyCoinEffects(
+  deps: EffectSystemDeps,
+  coin: SpawnedCoin,
+  trigger: CoinTrigger,
+  ctx: EffectRuntimeContext
+) {
+  const def = deps.coinDefs[coin.typeId];
+  for (const effect of def.effects) {
+    if (effect.trigger !== trigger) continue;
+    // switch(effect.id) { ... }
+  }
+}
+
+export function applyItemPassives(
+  deps: EffectSystemDeps,
+  items: OwnedItem[],
+  trigger: string,
+  ctx: EffectRuntimeContext
+) {
+  for (const item of items) {
+    const def = deps.itemDefs[item.typeId];
+    for (const effect of def.effects) {
+      if (effect.trigger !== trigger) continue;
+      // switch(effect.id) { ... }
+    }
+  }
+}
+```
+
+## Recommended first implementation order
+
+Build the codebase in the same order the player experiences the game. Matter.js supports stacking, collisions, friction, momentum, and events, so start by proving the machine feel before adding meta layers. [brm](https://brm.io/matter-js/)
+
+1. `physics/world.ts` + `physics/board.ts`
+2. `drop-system.ts`
+3. `payout-system.ts`
+4. `round-system.ts`
+5. `data/coin-defs.ts` with `normal`, `heavy`, `bomb`
+6. `item-defs.ts`
+7. `effect-system.ts`
+8. `shop-system.ts`
+9. particles, shake, sound polish
+
+## Practical advice
+
+For MVP v1, do not model everything as classes. A data-first approach with plain interfaces plus small systems will let you rebalance faster and add new coins cleanly.  Also keep Matter bodies in a `Map<CoinId, Body>` inside `physics/world.ts`, while `RunState.activeCoins` holds only serializable gameplay data; that split will save you a lot of debugging later. [dev](https://dev.to/davidmorais/building-a-roguelike-game-with-typescript-105l)
+
+Would you like the next step to be a full starter scaffold for `main.ts`, `world.ts`, and `drop-system.ts` so you can run the first playable coin drop immediately?

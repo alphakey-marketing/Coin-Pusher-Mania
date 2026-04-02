@@ -1,0 +1,120 @@
+Yes — you can absolutely make a coin-pushing game with your web skills, and your background in browser games, Vanilla JS, React, and Phaser-style MVP building makes this a very realistic project for you.  A good web MVP should not try to clone RACCOIN’s full meta systems; instead, it should focus on the tactile coin-drop feel, simple physics, a few special coins, and one satisfying combo loop. [playraccoin](https://www.playraccoin.com)
+
+## Feasibility
+
+A coin pusher fits the browser well because the core experience is visual simulation, click input, score feedback, and repeatable short runs, all of which work cleanly with JavaScript, Canvas, and browser-friendly game UI overlays.  Browser game guidance also supports JavaScript, Canvas, WebGL 2, keyboard, mouse, touch, and in-memory state, which is enough for an MVP without needing backend systems or persistent saves.  Since you already prefer lightweight web stacks for simple MVPs, this genre is a strong match for your existing workflow. [youtube](https://www.youtube.com/watch?v=c0eiZtFj1Ic)
+
+## What to copy
+
+RACCOIN’s fantasy is not just “dropping coins,” but building synergies between coins and items so each drop can trigger chain reactions and score explosions.  For your MVP, the part worth borrowing is the structure: drop object -> physics shove -> reward triggers -> shop choice -> stronger next round, not the entire 100+ coin deckbuilder scale.  That keeps the project original while preserving the addictive loop that makes the concept work. [g2a](https://www.g2a.com/news/game-spotlights/raccoin-coin-pusher-roguelike-release-date-gameplay-and-why-its-a-dopamine-machine/)
+
+## MVP loop
+
+Your MVP core loop should be:
+
+1. Player starts a round with 10 normal coins and 1 special coin. [youtube](https://www.youtube.com/watch?v=Bt4R2M_gS3Q)
+2. They click to drop coins into the machine and try to push coins over the front edge for money and score. [thumbculture.co](https://www.thumbculture.co.uk/raccoin-coin-pusher-roguelike-pc-review)
+3. Pushed-out coins award gold; special effects trigger on collision, landing, or falling out. [youtube](https://www.youtube.com/watch?v=c0eiZtFj1Ic)
+4. At the end of the round, the player chooses 1 item or 1 new special coin from 3 options. [playstack](https://www.playstack.com/games/raccoin/)
+5. Goal: hit a target score before running out of coins. [thumbculture.co](https://www.thumbculture.co.uk/raccoin-coin-pusher-roguelike-pc-review)
+
+That is enough to create a real roguelite feel without needing characters, endless mode, difficulty ladders, or dozens of currencies from day one. [g2a](https://www.g2a.com/news/game-spotlights/raccoin-coin-pusher-roguelike-release-date-gameplay-and-why-its-a-dopamine-machine/)
+
+## Core features
+
+I would make these the **minimum** shippable features for version 0.1:
+
+| Feature | Why it matters |
+|---|---|
+| Coin pusher board with moving shelf | This is the fantasy anchor; without the shove motion, it will not feel like a coin pusher.  [playraccoin](https://www.playraccoin.com) |
+| Physics-based falling and stacking | The appeal comes from chaotic pileups and edge drops.  [g2a](https://www.g2a.com/news/game-spotlights/raccoin-coin-pusher-roguelike-release-date-gameplay-and-why-its-a-dopamine-machine/) |
+| 3 coin types: Normal, Heavy, Bomb | Small set, but enough to create strategy and combo moments.  [youtube](https://www.youtube.com/watch?v=c0eiZtFj1Ic) |
+| Front payout zone | Gives immediate reward feedback when coins fall out.  [youtube](https://www.youtube.com/watch?v=Bt4R2M_gS3Q) |
+| Simple shop after each round | Adds progression and “build” feeling.  [g2a](https://www.g2a.com/news/game-spotlights/raccoin-coin-pusher-roguelike-release-date-gameplay-and-why-its-a-dopamine-machine/) |
+| 5 items/passives max | Enough for synergy testing without overwhelming scope.  [g2a](https://www.g2a.com/news/game-spotlights/raccoin-coin-pusher-roguelike-release-date-gameplay-and-why-its-a-dopamine-machine/) |
+| Juice: screenshake, sparkles, coin sound, floating numbers | The genre relies heavily on sensory payoff.  [playraccoin](https://www.playraccoin.com) |
+
+Recommended first item pool:
+- Magnet: coins near the edge slide forward slightly every 5 seconds.
+- Multiplier Tray: every 5th coin that drops gives double gold.
+- Bomb Polish: bomb coins explode in a slightly wider radius.
+- Lucky Lip: +1 gold for every coin that falls from the center lane.
+- Heavy Mint: heavy coins spawn 10% larger and push harder.
+
+These are simple to code because they modify values you already track rather than adding whole new systems. [playstack](https://www.playstack.com/games/raccoin/)
+
+## Tech approach
+
+For the MVP, I would not start with React-heavy UI plus complex physics integration. Your fastest path is a single-page browser game using Canvas and a 2D physics engine, with HTML/CSS for HUD and shop panels.  The browser-game guidance specifically supports Canvas games with HTML/CSS overlays, which is ideal for score, buttons, tooltips, and round transitions. [perplexity](https://www.perplexity.ai/search/0854b78d-21f8-4132-b6b6-f3312051e171)
+
+Best stack for you:
+- Vanilla JS or TypeScript + Vite for speed and low overhead. [perplexity](https://www.perplexity.ai/search/0854b78d-21f8-4132-b6b6-f3312051e171)
+- Matter.js for 2D rigid body physics, because coin collisions and shelf movement are the hard part.
+- HTML/CSS overlay for HUD, shop, and start/end panels. [youtube](https://www.youtube.com/watch?v=c0eiZtFj1Ic)
+- Optional later: Phaser only if you want scene management and content scaling, but it is not required for the first playable build. [perplexity](https://www.perplexity.ai/search/3364ed6a-afb6-4dc0-8773-1ae66c734d9c)
+
+Architecture:
+- `gameState`: score, gold, round, remaining drops, selected items.
+- `physicsWorld`: coins, shelf, walls, front lip, sensors.
+- `coinDefs`: normal/heavy/bomb/lucky behavior data.
+- `itemDefs`: passive modifiers.
+- `roundController`: start round, end round, shop phase.
+- `juice`: particles, sound, shake, popup numbers.
+
+## Game design
+
+Here is the cleanest MVP ruleset I’d use:
+
+### Board
+- One horizontal moving shelf that slowly pushes forward and retracts in a loop.
+- Side walls, back drop lane, and one front payout ledge.
+- Fixed drop slot at top center for MVP 1; movable drop cursor can come later.
+
+### Coins
+- Normal coin: basic value 1.
+- Heavy coin: 1 value, 1.5x mass, better at shoving stacks.
+- Bomb coin: explodes after 1.2 seconds on contact, applying force to nearby coins.
+
+### Scoring
+- Coin falls off front -> +1 gold.
+- Coin falls off front after touching another coin recently -> combo +1 score.
+- 3 coins out within 2 seconds -> “chain” bonus.
+- Bomb-caused payout -> +50% reward.
+
+### Run structure
+- Round target starts at 20 score.
+- Player gets 12 drops.
+- If target met, go shop and continue.
+- If target missed, run ends.
+
+This works because it creates skill, chaos, and buildcraft with very few variables. [g2a](https://www.g2a.com/news/game-spotlights/raccoin-coin-pusher-roguelike-release-date-gameplay-and-why-its-a-dopamine-machine/)
+
+## Development plan
+
+I would build it in 4 short milestones:
+
+1. Physics toy: shelf moves, coins drop, coins stack, coins fall out and score. [youtube](https://www.youtube.com/watch?v=c0eiZtFj1Ic)
+2. Playable loop: limited drops, target score, reset round, payout counter. [thumbculture.co](https://www.thumbculture.co.uk/raccoin-coin-pusher-roguelike-pc-review)
+3. Special content: heavy coin, bomb coin, 5 passive items. [g2a](https://www.g2a.com/news/game-spotlights/raccoin-coin-pusher-roguelike-release-date-gameplay-and-why-its-a-dopamine-machine/)
+4. Juice and balancing: sounds, screenshake, particles, clearer combo text, better economy. [store.steampowered](https://store.steampowered.com/app/3784030/RACCOIN_Coin_Pusher_Roguelike/)
+
+A realistic first playable for you is probably:
+- Day 1: board + physics + coin spawn.
+- Day 2: payout detection + score UI + reset logic.
+- Day 3: special coins.
+- Day 4: shop screen + item modifiers.
+- Day 5: polish and balancing.
+
+That scope is much closer to a successful indie prototype than trying to build “RACCOIN but in web” immediately. [perplexity](https://www.perplexity.ai/search/58a8735a-973b-4cd9-92fc-49fc58230a1e)
+
+## Design notes
+
+To make it feel good, focus on three sensations more than art detail:
+
+- Weight: coins need slightly inconsistent bounces and friction so stacks feel messy instead of sterile.
+- Anticipation: a bomb coin should blink before detonating; a heavy coin should land with a deeper sound.
+- Payoff: every payout should produce sound, tiny particles, score text, and a subtle camera shake.
+
+The browser game guidance also recommends a unified HTML/CSS game UI with legible HUD typography and panel-based overlays, which suits a cozy casino-machine look very well.  For your art direction, I would do “cozy neon arcade” or “cute trash-panda pachinko machine” so the UI and machine have a memorable identity without needing high-end assets. [youtube](https://www.youtube.com/watch?v=c0eiZtFj1Ic)
+
+Would you like me to turn this into a concrete file structure plus a first-pass TypeScript data model for the coins, items, and round system?

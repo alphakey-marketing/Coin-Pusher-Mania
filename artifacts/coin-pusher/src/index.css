@@ -1,0 +1,16 @@
+/* Minimal base reset — game uses game.css for all visuals */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: #0d0517;
+  color: #e0d0ff;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Coin Pusher Game"
+version = "1.0.0"
+id = "artifacts/coin-pusher"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19616
+
+[services.development]
+run = "pnpm --filter @workspace/coin-pusher run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/coin-pusher", "run", "build" ]
+publicDir = "artifacts/coin-pusher/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19616"
+BASE_PATH = "/"
