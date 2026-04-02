@@ -170,7 +170,6 @@ export default function GameCanvas() {
     const newState: GameState = {
       ...state,
       phase: 'playing',
-      dropsRemaining: CONFIG.STARTING_DROPS,
       score: 0,
       payoutsThisRound: 0,
       comboChain: 0,
@@ -215,7 +214,6 @@ export default function GameCanvas() {
         ...prev,
         dropsRemaining: newDrops,
         coinInventory: newInventory,
-        comboChain: 0,
       };
     });
   }, [syncState]);

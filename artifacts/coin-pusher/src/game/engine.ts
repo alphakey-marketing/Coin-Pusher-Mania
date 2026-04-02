@@ -24,7 +24,7 @@ interface PhysicsWorld {
   payoutSensor: Matter.Body;
   coins: Map<string, CoinBody>;
   shelfDirection: 1 | -1;
-  shelfX: number;
+  shelfY: number;
   onPayout: (coin: CoinBody) => void;
   onBombExplode: (coin: CoinBody) => void;
   onCoinLand: (coin: CoinBody) => void;
@@ -52,7 +52,8 @@ export function initPhysics(
   const leftWall = Matter.Bodies.rectangle(-T / 2, H / 2, T, H, { isStatic: true, label: 'wall' });
   const rightWall = Matter.Bodies.rectangle(W + T / 2, H / 2, T, H, { isStatic: true, label: 'wall' });
   const backWall = Matter.Bodies.rectangle(W / 2, -T / 2, W + T * 2, T, { isStatic: true, label: 'wall' });
-  const frontLip = Matter.Bodies.rectangle(W / 2, H - T / 2, W, T, { isStatic: true, label: 'frontLip', friction: 0.5 });
+  // frontLip is a visual guide only — coins pass through it as a sensor so they can reach the payout zone
+  const frontLip = Matter.Bodies.rectangle(W / 2, H - T / 2, W, T, { isStatic: true, isSensor: true, label: 'frontLip' });
   const shelf = Matter.Bodies.rectangle(W / 2, shelfY, W - T * 2, CONFIG.SHELF_HEIGHT, {
     isStatic: true,
     label: 'shelf',
@@ -81,7 +82,7 @@ export function initPhysics(
     payoutSensor,
     coins: new Map(),
     shelfDirection: 1,
-    shelfX: W / 2,
+    shelfY: H * CONFIG.SHELF_Y_START,
     onPayout,
     onBombExplode,
     onCoinLand,
@@ -96,11 +97,11 @@ export function initPhysics(
       const coinA = getCoinByBody(bodyA);
       const coinB = getCoinByBody(bodyB);
 
-      if (coinA && !coinA.hasLanded && (bodyB.label === 'shelf' || bodyB.label === 'frontLip' || coinB)) {
+      if (coinA && !coinA.hasLanded && (bodyB.label === 'shelf' || coinB)) {
         coinA.hasLanded = true;
         world.onCoinLand(coinA);
       }
-      if (coinB && !coinB.hasLanded && (bodyA.label === 'shelf' || bodyA.label === 'frontLip' || coinA)) {
+      if (coinB && !coinB.hasLanded && (bodyA.label === 'shelf' || coinA)) {
         coinB.hasLanded = true;
         world.onCoinLand(coinB);
       }
@@ -120,24 +121,21 @@ export function stepPhysics(dt: number, bombRadiusMultiplier = 1): void {
   if (!world) return;
   const W = CONFIG.BOARD_WIDTH;
   const H = CONFIG.BOARD_HEIGHT;
-  const T = CONFIG.WALL_THICKNESS;
 
   Matter.Runner.tick(world.runner, world.engine, dt);
 
-  const shelfY = H * CONFIG.SHELF_Y_START;
-  const halfTravel = CONFIG.SHELF_TRAVEL / 2;
-  const minX = W / 2 - halfTravel;
-  const maxX = W / 2 + halfTravel;
+  const minY = H * CONFIG.SHELF_Y_START;
+  const maxY = minY + CONFIG.SHELF_TRAVEL;
 
-  world.shelfX += CONFIG.SHELF_SPEED * world.shelfDirection;
-  if (world.shelfX >= maxX) {
-    world.shelfX = maxX;
+  world.shelfY += CONFIG.SHELF_SPEED * world.shelfDirection;
+  if (world.shelfY >= maxY) {
+    world.shelfY = maxY;
     world.shelfDirection = -1;
-  } else if (world.shelfX <= minX) {
-    world.shelfX = minX;
+  } else if (world.shelfY <= minY) {
+    world.shelfY = minY;
     world.shelfDirection = 1;
   }
-  Matter.Body.setPosition(world.shelf, { x: world.shelfX, y: shelfY });
+  Matter.Body.setPosition(world.shelf, { x: W / 2, y: world.shelfY });
 
   const now = Date.now();
   const toRemove: string[] = [];
@@ -218,7 +216,7 @@ export function spawnCoin(typeId: CoinTypeId, x: number, fuseMs: number = CONFIG
     createdAt: Date.now(),
     hasPaidOut: false,
     isBomb: typeId === 'bomb',
-    fuseEndsAt: typeId === 'bomb' ? null : null,
+    fuseEndsAt: null, // set by setCoinFuse() when bomb lands
     hasLanded: false,
     isExploding: false,
   };
@@ -237,11 +235,11 @@ export function getCoins(): CoinBody[] {
 }
 
 export function getShelfX(): number {
-  return world?.shelfX ?? CONFIG.BOARD_WIDTH / 2;
+  return CONFIG.BOARD_WIDTH / 2;
 }
 
 export function getShelfY(): number {
-  return CONFIG.BOARD_HEIGHT * CONFIG.SHELF_Y_START;
+  return world?.shelfY ?? CONFIG.BOARD_HEIGHT * CONFIG.SHELF_Y_START;
 }
 
 export function applyMagnetEffect(): void {
