@@ -5,7 +5,7 @@ import type { GameState } from '../game/state';
 import { createInitialState } from '../game/state';
 import {
   initPhysics, stepPhysics, spawnCoin, getCoins, getShelfX, getShelfY,
-  applyMagnetEffect, destroyPhysics, getCoinCount, type CoinBody, setCoinFuse
+  applyMagnetEffect, destroyPhysics, getCoinCount, populateInitialCoins, type CoinBody, setCoinFuse
 } from '../game/engine';
 import { renderFrame } from '../game/renderer';
 import {
@@ -144,6 +144,7 @@ export default function GameCanvas() {
   const initGame = useCallback(() => {
     destroyPhysics();
     initPhysics(handlePayout, handleBombExplode, handleCoinLand);
+    populateInitialCoins();
   }, [handlePayout, handleBombExplode, handleCoinLand]);
 
   useEffect(() => {
@@ -165,6 +166,7 @@ export default function GameCanvas() {
   const startNewRound = useCallback((state: GameState) => {
     destroyPhysics();
     initPhysics(handlePayout, handleBombExplode, handleCoinLand);
+    populateInitialCoins();
     particlesRef.current = [];
     floatingTextsRef.current = [];
     const newState: GameState = {

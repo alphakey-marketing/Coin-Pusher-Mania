@@ -52,8 +52,8 @@ export function initPhysics(
   const leftWall = Matter.Bodies.rectangle(-T / 2, H / 2, T, H, { isStatic: true, label: 'wall' });
   const rightWall = Matter.Bodies.rectangle(W + T / 2, H / 2, T, H, { isStatic: true, label: 'wall' });
   const backWall = Matter.Bodies.rectangle(W / 2, -T / 2, W + T * 2, T, { isStatic: true, label: 'wall' });
-  // frontLip is a visual guide only — coins pass through it as a sensor so they can reach the payout zone
-  const frontLip = Matter.Bodies.rectangle(W / 2, H - T / 2, W, T, { isStatic: true, isSensor: true, label: 'frontLip' });
+  // frontLip is the payout edge — a sensor that marks where coins exit into the payout zone
+  const frontLip = Matter.Bodies.rectangle(W / 2, H - T / 2, W, T, { isStatic: true, isSensor: true, label: 'frontLip', friction: 0.05, restitution: 0.1 });
   const shelf = Matter.Bodies.rectangle(W / 2, shelfY, W - T * 2, CONFIG.SHELF_HEIGHT, {
     isStatic: true,
     label: 'shelf',
@@ -97,11 +97,11 @@ export function initPhysics(
       const coinA = getCoinByBody(bodyA);
       const coinB = getCoinByBody(bodyB);
 
-      if (coinA && !coinA.hasLanded && (bodyB.label === 'shelf' || coinB)) {
+      if (coinA && !coinA.hasLanded && (bodyB.label === 'shelf' || bodyB.label === 'frontLip' || coinB)) {
         coinA.hasLanded = true;
         world.onCoinLand(coinA);
       }
-      if (coinB && !coinB.hasLanded && (bodyA.label === 'shelf' || coinA)) {
+      if (coinB && !coinB.hasLanded && (bodyA.label === 'shelf' || bodyA.label === 'frontLip' || coinA)) {
         coinB.hasLanded = true;
         world.onCoinLand(coinB);
       }
@@ -143,11 +143,11 @@ export function stepPhysics(dt: number, bombRadiusMultiplier = 1): void {
   for (const [id, coin] of world.coins) {
     const pos = coin.body.position;
 
-    if (pos.y > H + 10 && !coin.hasPaidOut) {
+    if (pos.y > CONFIG.PAYOUT_ZONE_Y && !coin.hasPaidOut) {
       coin.hasPaidOut = true;
       world.onPayout(coin);
       toRemove.push(id);
-    } else if (pos.y > H + 50) {
+    } else if (pos.y > CONFIG.PAYOUT_ZONE_Y + 40) {
       toRemove.push(id);
     }
 
@@ -265,4 +265,58 @@ export function destroyPhysics(): void {
 
 export function getCoinCount(): number {
   return world?.coins.size ?? 0;
+}
+
+export function populateInitialCoins(): void {
+  if (!world) return;
+  const H = CONFIG.BOARD_HEIGHT;
+  const def = COIN_DEFS['normal'];
+  const r = def.radius;
+
+  // Shelf top surface — the only solid surface coins can rest on
+  const shelfTopY = H * CONFIG.SHELF_Y_START - CONFIG.SHELF_HEIGHT / 2 - r;
+  // Second layer sitting on top of first layer
+  const shelfRow2Y = shelfTopY - r * 2 - 1;
+
+  const placements: { x: number; y: number }[] = [
+    // Row 1 on shelf — 7 coins spread across the shelf
+    { x: 46,  y: shelfTopY },
+    { x: 90,  y: shelfTopY },
+    { x: 134, y: shelfTopY },
+    { x: 180, y: shelfTopY },
+    { x: 226, y: shelfTopY },
+    { x: 270, y: shelfTopY },
+    { x: 314, y: shelfTopY },
+    // Row 2 stacked on row 1 — 4 coins offset for a natural pile
+    { x: 68,  y: shelfRow2Y },
+    { x: 136, y: shelfRow2Y },
+    { x: 204, y: shelfRow2Y },
+    { x: 292, y: shelfRow2Y },
+  ];
+
+  for (const { x, y } of placements) {
+    const id = `coin_${coinIdCounter++}`;
+    const body = Matter.Bodies.circle(x, y, r, {
+      density: def.density,
+      restitution: def.restitution,
+      friction: def.friction,
+      frictionAir: 0.01,
+      label: 'coin_normal',
+    });
+    Matter.Body.setVelocity(body, { x: 0, y: 0 });
+    Matter.Composite.add(world.engine.world, body);
+
+    const coin: CoinBody = {
+      id,
+      typeId: 'normal',
+      body,
+      createdAt: Date.now(),
+      hasPaidOut: false,
+      isBomb: false,
+      fuseEndsAt: null,
+      hasLanded: true,
+      isExploding: false,
+    };
+    world.coins.set(id, coin);
+  }
 }
